@@ -1,0 +1,296 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── ENUMS ──────────────────────────────────────────────
+
+enum UserRole {
+  CUSTOMER
+  RESTAURANT_OWNER
+  DRIVER
+  ADMIN
+}
+
+enum OrderStatus {
+  PLACED
+  CONFIRMED
+  PREPARING
+  READY
+  PICKED_UP
+  DELIVERED
+  CANCELLED
+}
+
+enum DeliveryStatus {
+  PENDING
+  ASSIGNED
+  PICKED_UP
+  IN_TRANSIT
+  DELIVERED
+  FAILED
+}
+
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REFUNDED
+}
+
+// ─── USER ───────────────────────────────────────────────
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  name      String
+  phone     String?
+  role      UserRole @default(CUSTOMER)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  restaurant Restaurant? @relation("OwnerRestaurant")
+  orders     Order[]
+  driver     Driver?
+  addresses  Address[]
+
+  @@index([email])
+  @@index([role])
+}
+
+// ─── RESTAURANT ─────────────────────────────────────────
+
+model Restaurant {
+  id          String  @id @default(uuid())
+  name        String
+  description String?
+  phone       String
+  email       String
+  imageUrl    String?
+  isActive    Boolean @default(true)
+
+  // Address
+  address String
+  city    String
+  state   String
+  zipCode String
+  lat     Float?
+  lng     Float?
+
+  // Operating hours stored as JSON: { "monday": { "open": "09:00", "close": "22:00" }, ... }
+  operatingHours Json?
+
+  // Avg prep time in minutes
+  avgPrepTime Int @default(30)
+
+  ownerId String @unique
+  owner   User   @relation("OwnerRestaurant", fields: [ownerId], references: [id])
+
+  menuCategories MenuCategory[]
+  orders         Order[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([city])
+  @@index([isActive])
+}
+
+// ─── MENU ───────────────────────────────────────────────
+
+model MenuCategory {
+  id           String @id @default(uuid())
+  name         String
+  description  String?
+  displayOrder Int    @default(0)
+
+  restaurantId String
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+
+  items MenuItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([restaurantId])
+}
+
+model MenuItem {
+  id          String  @id @default(uuid())
+  name        String
+  description String?
+  price       Float
+  imageUrl    String?
+  isAvailable Boolean @default(true)
+
+  // Dietary flags
+  isVegetarian Boolean @default(false)
+  isVegan      Boolean @default(false)
+  isGlutenFree Boolean @default(false)
+
+  categoryId String
+  category   MenuCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  orderItems OrderItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([categoryId])
+  @@index([isAvailable])
+}
+
+// ─── ORDER ──────────────────────────────────────────────
+
+model Order {
+  id          String      @id @default(uuid())
+  orderNumber String      @unique
+  status      OrderStatus @default(PLACED)
+
+  // Pricing
+  subtotal    Float
+  tax         Float
+  deliveryFee Float   @default(0)
+  total       Float
+  notes       String?
+
+  // Payment
+  paymentStatus PaymentStatus @default(PENDING)
+  paymentMethod String?
+
+  customerId String
+  customer   User   @relation(fields: [customerId], references: [id])
+
+  restaurantId String
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id])
+
+  deliveryAddressId String?
+  deliveryAddress   Address? @relation(fields: [deliveryAddressId], references: [id])
+
+  items    OrderItem[]
+  delivery Delivery?
+
+  estimatedReadyAt    DateTime?
+  actualReadyAt       DateTime?
+  estimatedDeliveryAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([customerId])
+  @@index([restaurantId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model OrderItem {
+  id       String @id @default(uuid())
+  quantity Int
+  price    Float
+  notes    String?
+
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  menuItemId String
+  menuItem   MenuItem @relation(fields: [menuItemId], references: [id])
+
+  @@index([orderId])
+}
+
+// ─── DELIVERY & DRIVER ──────────────────────────────────
+
+model Driver {
+  id            String  @id @default(uuid())
+  isAvailable   Boolean @default(true)
+  vehicleType   String?
+  licensePlate  String?
+  currentLat    Float?
+  currentLng    Float?
+
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id])
+
+  deliveries Delivery[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isAvailable])
+}
+
+model Delivery {
+  id     String         @id @default(uuid())
+  status DeliveryStatus @default(PENDING)
+
+  pickupLat  Float?
+  pickupLng  Float?
+  dropoffLat Float?
+  dropoffLng Float?
+
+  // Real-time tracking
+  currentLat Float?
+  currentLng Float?
+
+  estimatedPickupAt   DateTime?
+  actualPickupAt      DateTime?
+  estimatedDeliveryAt DateTime?
+  actualDeliveryAt    DateTime?
+
+  distanceKm Float?
+
+  driverId String?
+  driver   Driver? @relation(fields: [driverId], references: [id])
+
+  orderId String @unique
+  order   Order  @relation(fields: [orderId], references: [id])
+
+  locationHistory DeliveryLocationLog[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([driverId])
+  @@index([status])
+}
+
+model DeliveryLocationLog {
+  id        String   @id @default(uuid())
+  lat       Float
+  lng       Float
+  timestamp DateTime @default(now())
+
+  deliveryId String
+  delivery   Delivery @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+
+  @@index([deliveryId, timestamp])
+}
+
+// ─── ADDRESS ────────────────────────────────────────────
+
+model Address {
+  id       String  @id @default(uuid())
+  label    String? // "Home", "Work", etc.
+  street   String
+  city     String
+  state    String
+  zipCode  String
+  lat      Float?
+  lng      Float?
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  orders Order[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+}
