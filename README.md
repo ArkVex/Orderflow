@@ -1,4 +1,4 @@
-# Next Order - Restaurant Order Management API
+# OrderFlow - Restaurant Order Management API
 
 A scalable, production-ready backend API for restaurant order management, online ordering, real-time delivery tracking, and restaurant dashboard analytics. Built with clean layered architecture.
 
